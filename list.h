@@ -4,8 +4,8 @@
 typedef struct task task;
 typedef struct tasklist tasklist;
 
-task* createTask(char *task);
-void addTask(char* task);
+task* createTask(char* taskName);
+void addTask(char* taskString);
 void removeTask(task* task);
 void sortTasks();
 void printTasks();

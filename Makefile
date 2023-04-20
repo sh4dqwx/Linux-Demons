@@ -1,8 +1,8 @@
-minicron: main.o list.o
-	gcc main.o list.o -o minicron
+minicron: minicron.o list.o
+	gcc minicron.o list.o -o minicron
 
-main.o: main.c
-	gcc -c main.c
+minicron.o: minicron.c
+	gcc -c minicron.c
 
 list.o: list.c list.h
 	gcc -c list.c

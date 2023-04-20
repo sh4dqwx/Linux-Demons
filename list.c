@@ -2,13 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
 #include "list.h"
 
 /* List implementation */
 
 typedef struct task {
-    char *hour;
-    char *minute;
+    int hour;
+    int minute;
     char *command;
     char *mode;
 } task;
@@ -23,23 +24,23 @@ tasklist* taskListHead = NULL;
 tasklist* taskListTail = NULL;
 
 int compareTasks(task* task1, task* task2) {
-    int cmpResult = strcmp(task1->hour, task2->hour);
-    if(cmpResult != 0) {
+    int cmpResult;
+    if(task1->hour < task2->hour)
+        return -1;
+    if(task1->hour > task2->hour)
+        return 1;
+    
+    if(task1->minute < task2->minute)
+        return -1;
+    if(task1->minute > task2->minute)
+        return 1;
+
+    cmpResult = strcmp(task1->command, task2->command);
+    if(cmpResult != 0)
         return cmpResult;
-    } else {
-        cmpResult = strcmp(task1->minute, task2->minute);
-        if(cmpResult != 0) {
-            return cmpResult;
-        } else {
-            cmpResult = strcmp(task1->command, task2->command);
-            if(cmpResult != 0) {
-                return cmpResult;
-            } else {
-                cmpResult = strcmp(task1->mode, task2->mode);
-                return cmpResult;
-            }
-        }
-    }
+
+    cmpResult = strcmp(task1->mode, task2->mode);
+    return cmpResult;
 }
 
 task* createTask(char* taskName) {
@@ -73,10 +74,8 @@ task* createTask(char* taskName) {
 
     task* newTask = malloc(sizeof(task));
 
-    newTask->hour = malloc(strlen(hour)+1);
-    strcpy(newTask->hour, hour);
-    newTask->minute = malloc(strlen(minute)+1);
-    strcpy(newTask->minute, minute);
+    newTask->hour = atoi(hour);
+    newTask->minute = atoi(minute);
     newTask->command = malloc(strlen(command)+1);
     strcpy(newTask->command, command);
     newTask->mode = malloc(strlen(mode)+1);
@@ -129,12 +128,23 @@ void removeTask(task* task) {
         next->prev = prev;
     }
 
-    free(current->task->hour);
-    free(current->task->minute);
     free(current->task->command);
     free(current->task->mode);
     free(current->task);
     free(current);
+}
+
+bool checkIfPast(int hour, int minute) {
+    time_t currentTime = time(NULL);
+    struct tm* localTime = localtime(&currentTime);
+    int currentHour = localTime->tm_hour;
+    int currentMinute = localTime->tm_min;
+
+    if(hour < currentHour)
+        return true;
+    if(hour == currentHour && minute < currentMinute)
+        return true;
+    return false;
 }
 
 void sortTasks() {
@@ -156,6 +166,20 @@ void sortTasks() {
             j = j->next;
         }
         i = i->next;
+    }
+
+    if(checkIfPast(taskListTail->task->hour, taskListTail->task->minute))
+        return;
+
+    while (checkIfPast(taskListHead->task->hour, taskListHead->task->minute)) {
+        i = taskListHead;
+        taskListHead = taskListHead->next;
+        taskListHead->prev = NULL;
+        i->next = NULL;
+
+        taskListTail->next = i;
+        i->prev = taskListTail;
+        taskListTail = i;
     }
 }
 
@@ -180,8 +204,8 @@ void sortTasks() {
 //     L->task = j->task;
 //     j->task = tmp;
 
-//     sortTasks(L, j->prev);
-//     sortTasks(j->next, P);
+//     quickSort(L, j->prev);
+//     quickSort(j->next, P);
 // }
 
 // void sortTasks() {
@@ -194,11 +218,24 @@ void printTasks() {
     while (current != NULL)
     {
         task *currentTask = current->task;
-        printf("%s:%s:%s:%s\n", currentTask->hour, currentTask->minute, currentTask->command, currentTask->mode);
+        printf("%d:%d:%s:%s\n", currentTask->hour, currentTask->minute, currentTask->command, currentTask->mode);
         current = current->next;
     }
 }
 
-tasklist* getTaskListHead() {
-    return taskListHead;
+task* getFirstTask() {
+    return taskListHead->task;
+}
+
+int listLength() {
+    int length = 0;
+    tasklist *current = taskListHead;
+
+    while (current != NULL)
+    {
+        length++;
+        current = current->next;
+    }
+
+    return length;
 }

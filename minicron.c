@@ -8,8 +8,17 @@
 #include <syslog.h>
 #include <string.h>
 #include <time.h>
+#include <sys/wait.h>
+#include <signal.h>
 
 #include "list.h"
+
+typedef struct task {
+    int hour;
+    int minute;
+    char *command;
+    char *mode;
+} task;
 
 void argValidation(int argc, char **argv) {
     if (argc != 3) {
@@ -34,7 +43,7 @@ void argValidation(int argc, char **argv) {
 
 void readTaskFile(char *fileName) {
     FILE *taskFile = fopen(fileName, "r");
-    char taskBufor[100];
+    char taskBufor[1000];
     while(fgets(taskBufor, sizeof(taskBufor), taskFile) != NULL) {
         int index = strlen(taskBufor)-1;
         while(index >= 0 && (taskBufor[index] == '\n' || taskBufor[index] == '\r')) {
@@ -51,84 +60,127 @@ void readTaskFile(char *fileName) {
     printTasks();
 }
 
-time_t getTimeToSleep(task *firstTask) {
-    time_t currentTime = time(NULL);
-    struct tm taskLocalTime = {0};
-    taskLocalTime.tm_hour = firstTask->hour;
-    taskLocalTime.tm_min = firstTask->minute;
-    time_t taskTime = mktime(&taskLocalTime);
-
-    return taskTime - currentTime;
-}
-
 void runTask(task *firstTask) {
-    // char *command = firstTask->command;
-    // char *args[100];
-    // int i = 0;
-    // args[i] = strtok(command, " ");
-    // while(args[i] != NULL) {
-    //     i++;
-    //     args[i] = strtok(NULL, " ");
-    // }
-    // args[i] = NULL;
-    // execvp(args[0], args);
-    // perror("execvp");
-    // exit(EXIT_FAILURE);
+    char *command = firstTask->command;
+    char *mode = firstTask->mode;
+
+    char *bufor;
+    char *commands[100];
+    int commandsCount = 0;
+    bufor = strtok(command, "|");
+    while (bufor != NULL) {
+        commands[commandsCount] = bufor;
+        bufor = strtok(NULL, "|");
+        commandsCount++;
+    }
+
+    int pipes[commandsCount - 1][2];
+
+    for (int i = 0; i < commandsCount - 1; i++) {
+        if (pipe(pipes[i]) < 0) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    for (int i = 0; i < commandsCount; i++) {
+        bufor = strtok(commands[i], " ");
+        char *args[100];
+        int argsCount = 0;
+        while (bufor != NULL) {
+            args[argsCount] = bufor;
+            bufor = strtok(NULL, " ");
+            argsCount++;
+        }
+        args[argsCount] = NULL;
+
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        } else if (pid > 0) continue;
+        
+        if (i != 0) {
+            dup2(pipes[i - 1][0], STDIN_FILENO);
+        }
+
+        int stdout_fd = open("/dev/stdout", O_WRONLY);
+        int stderr_fd = open("/dev/stderr", O_WRONLY);
+
+        if (i != commandsCount - 1) {
+            dup2(pipes[i][1], STDOUT_FILENO);
+        } else {
+            printf("%s\n", mode);
+            if(strcmp(mode, "0"))
+                dup2(stdout_fd, STDOUT_FILENO);
+            else if(strcmp(mode, "1"))
+                dup2(stderr_fd, STDOUT_FILENO);
+            else {
+                dup2(STDOUT_FILENO, STDERR_FILENO);
+                dup2(stdout_fd, STDOUT_FILENO);
+                dup2(stderr_fd, STDOUT_FILENO);
+            }
+        }
+
+        for (int j = 0; j < commandsCount - 1; j++) {
+            close(pipes[j][0]);
+            close(pipes[j][1]);
+        }
+
+        char commandName[100] = "/bin/";
+        strcat(commandName, args[0]);
+        execv(commandName, args);
+        perror("execv");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < commandsCount - 1; i++) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+
+    for (int i = 0; i < commandsCount; i++) {
+        wait(NULL);
+    }
+    exit(EXIT_SUCCESS);
 }
 
 int main(int argc, char **argv) {
-    /* Our args validation function */
     argValidation(argc, argv);
 
-    /* Our process ID and Session ID */
     pid_t pid, sid;
-    
-    /* Fork off the parent process */
     pid = fork();
     if (pid < 0) {
         exit(EXIT_FAILURE);
-    }
-    /* If we got a good PID, then
-        we can exit the parent process. */
-    if (pid > 0) {
+    } else if (pid > 0) {
         exit(EXIT_SUCCESS);
     }
 
-    /* Change the file mode mask */
-    umask(0);
-            
-    /* Open any logs here */        
-            
-    /* Create a new SID for the child process */
+    umask(0);   
     sid = setsid();
     if (sid < 0) {
-        /* Log the failure */
+        perror("sid");
         exit(EXIT_FAILURE);
     }
-    
-    /* Close out the standard file descriptors */
-    //close(STDIN_FILENO);
-    //close(STDOUT_FILENO);
-    //close(STDERR_FILENO);
-    
-    /* Daemon-specific initialization goes here */
 
-    /* Opening files */
     readTaskFile(argv[1]);
-    exit(EXIT_SUCCESS);
-    /* The Big Loop */
+
     while (listLength() > 0) {
         task *firstTask = getFirstTask();
+        //removeTask(firstTask);
         time_t timeToSleep = getTimeToSleep(firstTask);
-        sleep(timeToSleep);
+        sleep(5);
         
         pid_t task_pid = fork();
         if (task_pid < 0) {
             perror("fork");
             exit(EXIT_FAILURE);
-        }
-        if (task_pid == 0) 
+        } else if (task_pid == 0) {
             runTask(firstTask);
+        } else {
+            wait(NULL);
+        }
     }
     exit(EXIT_SUCCESS);
 }

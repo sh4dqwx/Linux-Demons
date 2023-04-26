@@ -10,5 +10,6 @@ void sortTasks();
 void printTasks();
 task* getFirstTask();
 int listLength();
+time_t getTimeToSleep(task *firstTask);
 
 #endif

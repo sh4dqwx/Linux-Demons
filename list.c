@@ -239,3 +239,13 @@ int listLength() {
 
     return length;
 }
+
+time_t getTimeToSleep(task *firstTask) {
+    time_t currentTime = time(NULL);
+    struct tm taskLocalTime = {0};
+    taskLocalTime.tm_hour = firstTask->hour;
+    taskLocalTime.tm_min = firstTask->minute;
+    time_t taskTime = mktime(&taskLocalTime);
+
+    return taskTime - currentTime;
+}

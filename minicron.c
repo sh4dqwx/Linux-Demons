@@ -60,14 +60,23 @@ void readTaskFile(char *fileName) {
     printTasks();
 }
 
-void runTask(task *firstTask) {
-    char *command = firstTask->command;
+void runTask(task *firstTask, char *outfileName) {
+    char *commandString = firstTask->command;
     char *mode = firstTask->mode;
+
+    char taskBufor[1000];
+    sprintf(taskBufor, "%d:%d:%s:%s\n", firstTask->hour, firstTask->minute, firstTask->command, firstTask->mode);
+    int outfileFd = open(outfileName, O_WRONLY | O_APPEND);
+    int nullFd = open("/dev/null", O_WRONLY);
+    if(write(outfileFd, taskBufor, strlen(taskBufor)) < 0) {
+        perror("write");
+        exit(EXIT_FAILURE);
+    };
 
     char *bufor;
     char *commands[100];
     int commandsCount = 0;
-    bufor = strtok(command, "|");
+    bufor = strtok(commandString, "|");
     while (bufor != NULL) {
         commands[commandsCount] = bufor;
         bufor = strtok(NULL, "|");
@@ -105,27 +114,25 @@ void runTask(task *firstTask) {
             dup2(pipes[i - 1][0], STDIN_FILENO);
         }
 
-        int stdout_fd = open("/dev/stdout", O_WRONLY);
-        int stderr_fd = open("/dev/stderr", O_WRONLY);
-
         if (i != commandsCount - 1) {
             dup2(pipes[i][1], STDOUT_FILENO);
         } else {
-            printf("%s\n", mode);
-            if(strcmp(mode, "0"))
-                dup2(stdout_fd, STDOUT_FILENO);
-            else if(strcmp(mode, "1"))
-                dup2(stderr_fd, STDOUT_FILENO);
-            else {
-                dup2(STDOUT_FILENO, STDERR_FILENO);
-                dup2(stdout_fd, STDOUT_FILENO);
-                dup2(stderr_fd, STDOUT_FILENO);
+            if(!strcmp(mode, "1")) {
+                dup2(nullFd, STDOUT_FILENO);
+            } else {
+                dup2(outfileFd, STDOUT_FILENO);
             }
         }
 
         for (int j = 0; j < commandsCount - 1; j++) {
             close(pipes[j][0]);
             close(pipes[j][1]);
+        }
+
+        if(!strcmp(mode, "0")) {
+            close(STDERR_FILENO);
+        } else {
+            dup2(outfileFd, STDERR_FILENO);
         }
 
         char commandName[100] = "/bin/";
@@ -143,6 +150,9 @@ void runTask(task *firstTask) {
     for (int i = 0; i < commandsCount; i++) {
         wait(NULL);
     }
+
+    close(nullFd);
+    close(outfileFd);
     exit(EXIT_SUCCESS);
 }
 
@@ -170,16 +180,17 @@ int main(int argc, char **argv) {
         task *firstTask = getFirstTask();
         //removeTask(firstTask);
         time_t timeToSleep = getTimeToSleep(firstTask);
-        sleep(5);
+        //sleep(5);
         
         pid_t task_pid = fork();
         if (task_pid < 0) {
             perror("fork");
             exit(EXIT_FAILURE);
         } else if (task_pid == 0) {
-            runTask(firstTask);
+            runTask(firstTask, argv[2]);
         } else {
             wait(NULL);
+            exit(EXIT_SUCCESS);
         }
     }
     exit(EXIT_SUCCESS);

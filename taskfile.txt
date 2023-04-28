@@ -1,0 +1,6 @@
+21:00:ls -l l | grep task | wc -l:2
+21:01:ls -al:1
+21:01:ls -al:1
+21:01:ls -al:1
+21:01:ls -al:1
+21:01:ls -al:1

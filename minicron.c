@@ -9,9 +9,12 @@
 #include <string.h>
 #include <time.h>
 #include <sys/wait.h>
+#include <sys/select.h>
 #include <signal.h>
 
 #include "list.h"
+
+volatile sig_atomic_t exitFlag = 1;
 
 typedef struct task {
     int hour;
@@ -65,7 +68,7 @@ void runTask(task *firstTask, char *outfileName) {
     char *mode = firstTask->mode;
 
     char taskBufor[1000];
-    sprintf(taskBufor, "%d:%d:%s:%s\n", firstTask->hour, firstTask->minute, firstTask->command, firstTask->mode);
+    sprintf(taskBufor, "\n%d:%d:%s:%s\n", firstTask->hour, firstTask->minute, firstTask->command, firstTask->mode);
     int outfileFd = open(outfileName, O_WRONLY | O_APPEND);
     int nullFd = open("/dev/null", O_WRONLY);
     if(write(outfileFd, taskBufor, strlen(taskBufor)) < 0) {
@@ -156,6 +159,11 @@ void runTask(task *firstTask, char *outfileName) {
     exit(EXIT_SUCCESS);
 }
 
+void sigintHandler(int signum) {
+    printf("sygnal!\n");
+    exitFlag = 0;
+}
+
 int main(int argc, char **argv) {
     argValidation(argc, argv);
 
@@ -167,6 +175,8 @@ int main(int argc, char **argv) {
         exit(EXIT_SUCCESS);
     }
 
+    signal(SIGINT, sigintHandler);
+
     umask(0);   
     sid = setsid();
     if (sid < 0) {
@@ -175,14 +185,23 @@ int main(int argc, char **argv) {
     }
 
     readTaskFile(argv[1]);
-
-    while (listLength() > 0) {
+    while (listLength() > 0 && exitFlag == 1) {
         task *firstTask = getFirstTask();
         //removeTask(firstTask);
         time_t timeToSleep = getTimeToSleep(firstTask);
-        //sleep(5);
+        printf("%d\n", exitFlag);
+
+        for (time_t i = 0; i < 5; i++)
+        {
+            sleep(1);
+            if(exitFlag == 0) {
+                printf("Zamykanie programu...\n");
+                exit(EXIT_SUCCESS);
+            }
+        }
         
         pid_t task_pid = fork();
+        raise(SIGINT);
         if (task_pid < 0) {
             perror("fork");
             exit(EXIT_FAILURE);
@@ -190,7 +209,8 @@ int main(int argc, char **argv) {
             runTask(firstTask, argv[2]);
         } else {
             wait(NULL);
-            exit(EXIT_SUCCESS);
+            //raise(SIGINT);
+            //exit(EXIT_SUCCESS);
         }
     }
     exit(EXIT_SUCCESS);

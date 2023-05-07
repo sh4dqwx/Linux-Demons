@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <syslog.h>
 #include <time.h>
 #include "list.h"
 
@@ -99,39 +100,28 @@ void addTask(char* taskString) {
     }
 }
 
-void removeTask(task* task) {
-    if (taskListHead == NULL)
-        return;
+void removeFirst() {
+    tasklist *temp = taskListHead;
 
-    tasklist *current = taskListHead;
-
-    while (current != NULL) {
-        if (compareTasks(current->task, task) == 0) break;
-        else current = current->next;
-    }
-
-    if (current == NULL)
-        return;
-    
-    tasklist *prev = current->prev;
-    tasklist *next = current->next;
-
-    if (prev == NULL ) {
-        taskListHead = next;
+    if (taskListHead->next == NULL) {
+        taskListHead = NULL;
+        taskListTail = NULL;
     } else {
-        prev->next = next;
-    }
-    
-    if (next == NULL) {
-        taskListTail = prev;
-    } else {
-        next->prev = prev;
+        taskListHead = temp->next;
+        taskListHead->prev = NULL;
     }
 
-    free(current->task->command);
-    free(current->task->mode);
-    free(current->task);
-    free(current);
+    free(temp->task->command);
+    free(temp->task->mode);
+    free(temp->task);
+    free(temp);
+}
+
+void removeAll() {
+    while (taskListHead != NULL)
+    {
+        removeFirst();
+    }
 }
 
 bool checkIfPast(int hour, int minute) {
@@ -183,44 +173,18 @@ void sortTasks() {
     }
 }
 
-// Nie usuwaj!! poprawie i bedzie git
-// void quickSort(tasklist* L, tasklist* P) {
-//     if(L->index == P->index) return;
-
-//     tasklist* i = L; tasklist* j = P->next;
-//     do {
-//         do i = i->next; while(i->index <= P->index && compareTasks(i->task, L->task) < 0);
-//         do {
-//             if(j == NULL) j = taskListTail;
-//             else j = j->prev;
-//         } while(compareTasks(j->task, L->task) > 0);
-//         if(i->index < j->index) {
-//             task* tmp = i->task;
-//             i->task = j->task;
-//             j->task = tmp;
-//         }
-//     } while(i->index < j->index);
-//     task* tmp = L->task;
-//     L->task = j->task;
-//     j->task = tmp;
-
-//     quickSort(L, j->prev);
-//     quickSort(j->next, P);
-// }
-
-// void sortTasks() {
-//     quickSort(taskListHead, taskListTail);
-// }
-
-void printTasks() {
+void printTasksToSyslog() {
     tasklist *current = taskListHead;
 
+    openlog(NULL, LOG_PID, LOG_USER);
+    syslog(LOG_INFO, "Pozostałe zadania:\n");
     while (current != NULL)
     {
         task *currentTask = current->task;
-        printf("%d:%d:%s:%s\n", currentTask->hour, currentTask->minute, currentTask->command, currentTask->mode);
+        syslog(LOG_INFO, "%s:%s:%s:%s\n", toString(currentTask->hour), toString(currentTask->minute), currentTask->command, currentTask->mode);
         current = current->next;
     }
+    closelog();
 }
 
 task* getFirstTask() {
@@ -242,10 +206,30 @@ int listLength() {
 
 time_t getTimeToSleep(task *firstTask) {
     time_t currentTime = time(NULL);
+    struct tm *currentLocalTime = localtime(&currentTime);
     struct tm taskLocalTime = {0};
+
     taskLocalTime.tm_hour = firstTask->hour;
     taskLocalTime.tm_min = firstTask->minute;
+    taskLocalTime.tm_sec = 0;
+    taskLocalTime.tm_year = currentLocalTime->tm_year;
+    taskLocalTime.tm_mon = currentLocalTime->tm_mon;
+    taskLocalTime.tm_mday = currentLocalTime->tm_mday;
+    taskLocalTime.tm_isdst = -1;
+    
     time_t taskTime = mktime(&taskLocalTime);
+    if(taskTime - currentTime < 0)
+        taskTime += 86400; // 1 day
 
     return taskTime - currentTime;
+}
+
+char* toString(int value) {
+    char *bufor = malloc(sizeof(char) * 3);
+    if(value < 10) {
+        sprintf(bufor, "0%d", value);
+    } else {
+        sprintf(bufor, "%d", value);
+    }
+    return bufor;
 }

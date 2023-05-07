@@ -15,6 +15,7 @@
 #include "list.h"
 
 volatile sig_atomic_t exitFlag = 1;
+char *taskfileName;
 
 typedef struct task {
     int hour;
@@ -60,7 +61,6 @@ void readTaskFile(char *fileName) {
     }
     fclose(taskFile);
     sortTasks();
-    printTasks();
 }
 
 void runTask(task *firstTask, char *outfileName) {
@@ -68,13 +68,13 @@ void runTask(task *firstTask, char *outfileName) {
     char *mode = firstTask->mode;
 
     char taskBufor[1000];
-    sprintf(taskBufor, "\n%d:%d:%s:%s\n", firstTask->hour, firstTask->minute, firstTask->command, firstTask->mode);
+    sprintf(taskBufor, "\n%s:%s:%s:%s\n", toString(firstTask->hour), toString(firstTask->minute), firstTask->command, firstTask->mode);
     int outfileFd = open(outfileName, O_WRONLY | O_APPEND);
     int nullFd = open("/dev/null", O_WRONLY);
     if(write(outfileFd, taskBufor, strlen(taskBufor)) < 0) {
         perror("write");
         exit(EXIT_FAILURE);
-    };
+    }
 
     char *bufor;
     char *commands[100];
@@ -150,22 +150,40 @@ void runTask(task *firstTask, char *outfileName) {
         close(pipes[i][1]);
     }
 
+    int pipeStatus = 0;
     for (int i = 0; i < commandsCount; i++) {
-        wait(NULL);
+        int commandStatus;
+        wait(&commandStatus);
+        int exitCode = WEXITSTATUS(commandStatus);
+        if (pipeStatus == 0) {
+            pipeStatus = exitCode;
+        }
     }
 
     close(nullFd);
     close(outfileFd);
-    exit(EXIT_SUCCESS);
+    exit(pipeStatus);
 }
 
 void sigintHandler(int signum) {
-    printf("sygnal!\n");
     exitFlag = 0;
+}
+
+void sigusr1Handler(int sigum) {
+    exitFlag = -1;
+
+    removeAll();
+    readTaskFile(taskfileName);
+    exitFlag = -2;
+}
+
+void sigusr2Handler(int signum) {
+    printTasksToSyslog();
 }
 
 int main(int argc, char **argv) {
     argValidation(argc, argv);
+    taskfileName = argv[1];
 
     pid_t pid, sid;
     pid = fork();
@@ -176,6 +194,8 @@ int main(int argc, char **argv) {
     }
 
     signal(SIGINT, sigintHandler);
+    signal(SIGUSR1, sigusr1Handler);
+    signal(SIGUSR2, sigusr2Handler);
 
     umask(0);   
     sid = setsid();
@@ -184,33 +204,52 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    readTaskFile(argv[1]);
-    while (listLength() > 0 && exitFlag == 1) {
-        task *firstTask = getFirstTask();
-        //removeTask(firstTask);
-        time_t timeToSleep = getTimeToSleep(firstTask);
-        printf("%d\n", exitFlag);
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
 
-        for (time_t i = 0; i < 5; i++)
+    readTaskFile(taskfileName);
+    while (listLength() > 0) {
+        task *firstTask = getFirstTask();
+        time_t timeToSleep = getTimeToSleep(firstTask);
+        for (time_t i = 0; i < timeToSleep; i++)
         {
             sleep(1);
             if(exitFlag == 0) {
-                printf("Zamykanie programu...\n");
                 exit(EXIT_SUCCESS);
+            } else if (exitFlag < 0) {
+                break;
             }
         }
-        
+        if (exitFlag < 0) {
+            while (exitFlag == -1) {
+                sleep(1);
+            }
+            exitFlag = 1;
+            continue;
+        }
+
+        int resultCode;
         pid_t task_pid = fork();
-        raise(SIGINT);
         if (task_pid < 0) {
             perror("fork");
             exit(EXIT_FAILURE);
         } else if (task_pid == 0) {
             runTask(firstTask, argv[2]);
         } else {
-            wait(NULL);
-            //raise(SIGINT);
-            //exit(EXIT_SUCCESS);
+            openlog(NULL, LOG_PID, LOG_USER);
+            syslog(LOG_INFO, "Rozpoczęcie zadania: %s:%s:%s:%s", toString(firstTask->hour), toString(firstTask->minute), firstTask->command, firstTask->mode);
+            closelog();
+
+            int status;
+            wait(&status);
+            int resultCode = WEXITSTATUS(status);
+            
+            openlog(NULL, LOG_PID, LOG_USER);
+            syslog(LOG_INFO, "Kod wyjścia zadania: %d", resultCode);
+            closelog();
+
+            removeFirst();
         }
     }
     exit(EXIT_SUCCESS);

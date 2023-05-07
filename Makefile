@@ -8,4 +8,4 @@ list.o: list.c list.h
 	gcc -c list.c
 
 clear:
-	rm *.o minicron output
+	rm *.o minicron

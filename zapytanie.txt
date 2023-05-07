@@ -1,0 +1,530 @@
+Napisz dokumentację do poniższego programu składającego się na 4 pliki ("minicron.c", "list.c", "list.h" i "Makefile") według zadania: 
+"Stwórz krótką dokumentację, która zawierająca sposób uruchamiania i testowania projektu oraz jasno sprecyzowaną listę zaimplementowanych funkcjonalności (funkcjonalność pominięta w dokumentacji nie będzie uznawana za zaimplementowaną). Dodatkowo w dokumentacji powinna znaleźć się przynajmniej jedna funkcja opisana podbie jak funkcje w manualach (możemy ograniczyć się do języka polskiego)."
+
+Plik "minicron.c":
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
+#include <syslog.h>
+#include <string.h>
+#include <time.h>
+#include <sys/wait.h>
+#include <sys/select.h>
+#include <signal.h>
+
+#include "list.h"
+
+volatile sig_atomic_t exitFlag = 1;
+char *taskfileName;
+
+typedef struct task {
+    int hour;
+    int minute;
+    char *command;
+    char *mode;
+} task;
+
+void argValidation(int argc, char **argv) {
+    if (argc != 3) {
+        printf("Nie prawidłowy format: \"./minicron <taskfile> <outfile>\"\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (strcmp(argv[1], argv[2]) == 0) {
+        printf("Pliki \"taskfile\" i \"outfile\" nie mogą być tym samym plikiem\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (access(argv[1], F_OK) < 0) {
+        perror(argv[1]);
+        exit(EXIT_FAILURE);
+    }
+    if (access(argv[2], F_OK) < 0) {
+        perror(argv[2]);
+        exit(EXIT_FAILURE);
+    }
+}
+
+void readTaskFile(char *fileName) {
+    FILE *taskFile = fopen(fileName, "r");
+    char taskBufor[1000];
+    while(fgets(taskBufor, sizeof(taskBufor), taskFile) != NULL) {
+        int index = strlen(taskBufor)-1;
+        while(index >= 0 && (taskBufor[index] == '\n' || taskBufor[index] == '\r')) {
+            taskBufor[index] = '\0';
+            index--;
+        }
+        char* taskString = malloc(strlen(taskBufor)+1);
+        strcpy(taskString, taskBufor);
+        addTask(taskString);
+        free(taskString);
+    }
+    fclose(taskFile);
+    sortTasks();
+}
+
+void runTask(task *firstTask, char *outfileName) {
+    char *commandString = firstTask->command;
+    char *mode = firstTask->mode;
+
+    char taskBufor[1000];
+    sprintf(taskBufor, "\n%s:%s:%s:%s\n", toString(firstTask->hour), toString(firstTask->minute), firstTask->command, firstTask->mode);
+    int outfileFd = open(outfileName, O_WRONLY | O_APPEND);
+    int nullFd = open("/dev/null", O_WRONLY);
+    if(write(outfileFd, taskBufor, strlen(taskBufor)) < 0) {
+        perror("write");
+        exit(EXIT_FAILURE);
+    }
+
+    char *bufor;
+    char *commands[100];
+    int commandsCount = 0;
+    bufor = strtok(commandString, "|");
+    while (bufor != NULL) {
+        commands[commandsCount] = bufor;
+        bufor = strtok(NULL, "|");
+        commandsCount++;
+    }
+
+    int pipes[commandsCount - 1][2];
+
+    for (int i = 0; i < commandsCount - 1; i++) {
+        if (pipe(pipes[i]) < 0) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    for (int i = 0; i < commandsCount; i++) {
+        bufor = strtok(commands[i], " ");
+        char *args[100];
+        int argsCount = 0;
+        while (bufor != NULL) {
+            args[argsCount] = bufor;
+            bufor = strtok(NULL, " ");
+            argsCount++;
+        }
+        args[argsCount] = NULL;
+
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        } else if (pid > 0) continue;
+        
+        if (i != 0) {
+            dup2(pipes[i - 1][0], STDIN_FILENO);
+        }
+
+        if (i != commandsCount - 1) {
+            dup2(pipes[i][1], STDOUT_FILENO);
+        } else {
+            if(!strcmp(mode, "1")) {
+                dup2(nullFd, STDOUT_FILENO);
+            } else {
+                dup2(outfileFd, STDOUT_FILENO);
+            }
+        }
+
+        for (int j = 0; j < commandsCount - 1; j++) {
+            close(pipes[j][0]);
+            close(pipes[j][1]);
+        }
+
+        if(!strcmp(mode, "0")) {
+            close(STDERR_FILENO);
+        } else {
+            dup2(outfileFd, STDERR_FILENO);
+        }
+
+        char commandName[100] = "/bin/";
+        strcat(commandName, args[0]);
+        execv(commandName, args);
+        perror("execv");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < commandsCount - 1; i++) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+
+    int pipeStatus = 0;
+    for (int i = 0; i < commandsCount; i++) {
+        int commandStatus;
+        wait(&commandStatus);
+        int exitCode = WEXITSTATUS(commandStatus);
+        if (pipeStatus == 0) {
+            pipeStatus = exitCode;
+        }
+    }
+
+    close(nullFd);
+    close(outfileFd);
+    exit(pipeStatus);
+}
+
+void sigintHandler(int signum) {
+    exitFlag = 0;
+}
+
+void sigusr1Handler(int sigum) {
+    exitFlag = -1;
+
+    removeAll();
+    readTaskFile(taskfileName);
+    exitFlag = -2;
+}
+
+void sigusr2Handler(int signum) {
+    printTasksToSyslog();
+}
+
+int main(int argc, char **argv) {
+    argValidation(argc, argv);
+    taskfileName = argv[1];
+
+    pid_t pid, sid;
+    pid = fork();
+    if (pid < 0) {
+        exit(EXIT_FAILURE);
+    } else if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
+
+    signal(SIGINT, sigintHandler);
+    signal(SIGUSR1, sigusr1Handler);
+    signal(SIGUSR2, sigusr2Handler);
+
+    umask(0);   
+    sid = setsid();
+    if (sid < 0) {
+        perror("sid");
+        exit(EXIT_FAILURE);
+    }
+
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+
+    readTaskFile(taskfileName);
+    while (listLength() > 0) {
+        task *firstTask = getFirstTask();
+        time_t timeToSleep = getTimeToSleep(firstTask);
+        for (time_t i = 0; i < timeToSleep; i++)
+        {
+            sleep(1);
+            if(exitFlag == 0) {
+                exit(EXIT_SUCCESS);
+            } else if (exitFlag < 0) {
+                break;
+            }
+        }
+        if (exitFlag < 0) {
+            while (exitFlag == -1) {
+                sleep(1);
+            }
+            exitFlag = 1;
+            continue;
+        }
+
+        int resultCode;
+        pid_t task_pid = fork();
+        if (task_pid < 0) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        } else if (task_pid == 0) {
+            runTask(firstTask, argv[2]);
+        } else {
+            openlog(NULL, LOG_PID, LOG_USER);
+            syslog(LOG_INFO, "Rozpoczęcie zadania: %s:%s:%s:%s", toString(firstTask->hour), toString(firstTask->minute), firstTask->command, firstTask->mode);
+            closelog();
+
+            int status;
+            wait(&status);
+            int resultCode = WEXITSTATUS(status);
+            
+            openlog(NULL, LOG_PID, LOG_USER);
+            syslog(LOG_INFO, "Kod wyjścia zadania: %d", resultCode);
+            closelog();
+
+            removeFirst();
+        }
+    }
+    exit(EXIT_SUCCESS);
+}
+
+Plik "list.c":
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <syslog.h>
+#include <time.h>
+#include "list.h"
+
+/* List implementation */
+
+typedef struct task {
+    int hour;
+    int minute;
+    char *command;
+    char *mode;
+} task;
+
+typedef struct tasklist {
+    task *task;
+    struct tasklist *next;
+    struct tasklist *prev;
+} tasklist;
+
+tasklist* taskListHead = NULL;
+tasklist* taskListTail = NULL;
+
+int compareTasks(task* task1, task* task2) {
+    int cmpResult;
+    if(task1->hour < task2->hour)
+        return -1;
+    if(task1->hour > task2->hour)
+        return 1;
+    
+    if(task1->minute < task2->minute)
+        return -1;
+    if(task1->minute > task2->minute)
+        return 1;
+
+    cmpResult = strcmp(task1->command, task2->command);
+    if(cmpResult != 0)
+        return cmpResult;
+
+    cmpResult = strcmp(task1->mode, task2->mode);
+    return cmpResult;
+}
+
+task* createTask(char* taskName) {
+    char taskElementBufor[100]; int index = 0;
+    char* hour = NULL; char* minute = NULL;
+    char* command = NULL; char* mode = NULL;
+    for(int i=0; i<strlen(taskName); i++) {
+        if(taskName[i] == ':') {
+            if(hour == NULL) {
+                hour = malloc(index+2);
+                strcpy(hour, taskElementBufor);
+            } else if(minute == NULL) {
+                minute = malloc(index+2);
+                strcpy(minute, taskElementBufor);
+            } else if(command == NULL) {
+                command = malloc(index+2);
+                strcpy(command, taskElementBufor);
+            }
+
+            while(index > 0) {
+                index--;
+                taskElementBufor[index] = '\0';
+            }
+        } else {
+            taskElementBufor[index] = taskName[i];
+            index++;
+        }
+    }
+    mode = malloc(index+2);
+    strcpy(mode, taskElementBufor);
+
+    task* newTask = malloc(sizeof(task));
+
+    newTask->hour = atoi(hour);
+    newTask->minute = atoi(minute);
+    newTask->command = malloc(strlen(command)+1);
+    strcpy(newTask->command, command);
+    newTask->mode = malloc(strlen(mode)+1);
+    strcpy(newTask->mode, mode);
+
+    return newTask;
+}
+
+void addTask(char* taskString) {
+    tasklist *newTaskList = malloc(sizeof(tasklist));
+    newTaskList->task = createTask(taskString);
+    newTaskList->next = NULL;
+    newTaskList->prev = taskListTail;
+
+    if (taskListHead == NULL) {
+        taskListHead = newTaskList;
+        taskListTail = newTaskList;
+    } else {
+        taskListTail->next = newTaskList;
+        taskListTail = newTaskList;
+    }
+}
+
+void removeFirst() {
+    tasklist *temp = taskListHead;
+
+    if (taskListHead->next == NULL) {
+        taskListHead = NULL;
+        taskListTail = NULL;
+    } else {
+        taskListHead = temp->next;
+        taskListHead->prev = NULL;
+    }
+
+    free(temp->task->command);
+    free(temp->task->mode);
+    free(temp->task);
+    free(temp);
+}
+
+void removeAll() {
+    while (taskListHead != NULL)
+    {
+        removeFirst();
+    }
+}
+
+bool checkIfPast(int hour, int minute) {
+    time_t currentTime = time(NULL);
+    struct tm* localTime = localtime(&currentTime);
+    int currentHour = localTime->tm_hour;
+    int currentMinute = localTime->tm_min;
+
+    if(hour < currentHour)
+        return true;
+    if(hour == currentHour && minute < currentMinute)
+        return true;
+    return false;
+}
+
+void sortTasks() {
+    if (taskListHead == NULL)
+        return;
+
+    tasklist* i = taskListHead;
+    tasklist* j = NULL;
+    task* temp = NULL;
+
+    while (i != NULL) {
+        j = i->next;
+        while (j != NULL) {
+            if (compareTasks(i->task, j->task) > 0) {
+                temp = i->task;
+                i->task = j->task;
+                j->task = temp;
+            }
+            j = j->next;
+        }
+        i = i->next;
+    }
+
+    if(checkIfPast(taskListTail->task->hour, taskListTail->task->minute))
+        return;
+
+    while (checkIfPast(taskListHead->task->hour, taskListHead->task->minute)) {
+        i = taskListHead;
+        taskListHead = taskListHead->next;
+        taskListHead->prev = NULL;
+        i->next = NULL;
+
+        taskListTail->next = i;
+        i->prev = taskListTail;
+        taskListTail = i;
+    }
+}
+
+void printTasksToSyslog() {
+    tasklist *current = taskListHead;
+
+    openlog(NULL, LOG_PID, LOG_USER);
+    syslog(LOG_INFO, "Pozostałe zadania:\n");
+    while (current != NULL)
+    {
+        task *currentTask = current->task;
+        syslog(LOG_INFO, "%s:%s:%s:%s\n", toString(currentTask->hour), toString(currentTask->minute), currentTask->command, currentTask->mode);
+        current = current->next;
+    }
+    closelog();
+}
+
+task* getFirstTask() {
+    return taskListHead->task;
+}
+
+int listLength() {
+    int length = 0;
+    tasklist *current = taskListHead;
+
+    while (current != NULL)
+    {
+        length++;
+        current = current->next;
+    }
+
+    return length;
+}
+
+time_t getTimeToSleep(task *firstTask) {
+    time_t currentTime = time(NULL);
+    struct tm *currentLocalTime = localtime(&currentTime);
+    struct tm taskLocalTime = {0};
+
+    taskLocalTime.tm_hour = firstTask->hour;
+    taskLocalTime.tm_min = firstTask->minute;
+    taskLocalTime.tm_sec = 0;
+    taskLocalTime.tm_year = currentLocalTime->tm_year;
+    taskLocalTime.tm_mon = currentLocalTime->tm_mon;
+    taskLocalTime.tm_mday = currentLocalTime->tm_mday;
+    taskLocalTime.tm_isdst = -1;
+    
+    time_t taskTime = mktime(&taskLocalTime);
+    if(taskTime - currentTime < 0)
+        taskTime += 86400; // 1 day
+
+    return taskTime - currentTime;
+}
+
+char* toString(int value) {
+    char *bufor = malloc(sizeof(char) * 3);
+    if(value < 10) {
+        sprintf(bufor, "0%d", value);
+    } else {
+        sprintf(bufor, "%d", value);
+    }
+    return bufor;
+}
+
+Plik "list.h":
+#ifndef LIST_H
+#define LIST_H
+
+typedef struct task task;
+
+task* createTask(char* taskName);
+void addTask(char* taskString);
+void removeFirst();
+void removeAll();
+void sortTasks();
+void printTasks();
+void printTasksToSyslog();
+task* getFirstTask();
+int listLength();
+time_t getTimeToSleep(task *firstTask);
+char* toString(int value);
+
+#endif
+
+Plik Makefile:
+minicron: minicron.o list.o
+	gcc minicron.o list.o -o minicron
+
+minicron.o: minicron.c
+	gcc -c minicron.c
+
+list.o: list.c list.h
+	gcc -c list.c
+
+clear:
+	rm *.o minicron

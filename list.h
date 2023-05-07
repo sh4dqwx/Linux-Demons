@@ -5,11 +5,14 @@ typedef struct task task;
 
 task* createTask(char* taskName);
 void addTask(char* taskString);
-void removeTask(task* task);
+void removeFirst();
+void removeAll();
 void sortTasks();
 void printTasks();
+void printTasksToSyslog();
 task* getFirstTask();
 int listLength();
 time_t getTimeToSleep(task *firstTask);
+char* toString(int value);
 
 #endif

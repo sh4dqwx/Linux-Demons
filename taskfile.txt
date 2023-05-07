@@ -1,6 +1,6 @@
-21:00:ls -l l | grep task | wc -l:2
-21:01:ls -al:1
-21:01:ls -al:1
-21:01:ls -al:1
-21:01:ls -al:1
-21:01:ls -al:1
+10:20:ls -l | grep task | wc -l:2
+10:25:ls -l 123 | grep task | wc -l 123:2
+10:30:ls -al l:2
+10:40:ls -al:0
+10:50:ls -al:1
+11:00:ls -al:2

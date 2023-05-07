@@ -60,7 +60,6 @@ void readTaskFile(char *fileName) {
         free(taskString);
     }
     fclose(taskFile);
-    sortTasks();
 }
 
 void runTask(task *firstTask, char *outfileName) {
@@ -174,6 +173,7 @@ void sigusr1Handler(int sigum) {
 
     removeAll();
     readTaskFile(taskfileName);
+    sortTasks();
     exitFlag = -2;
 }
 
@@ -209,6 +209,8 @@ int main(int argc, char **argv) {
     close(STDERR_FILENO);
 
     readTaskFile(taskfileName);
+    sortTasks();
+
     while (listLength() > 0) {
         task *firstTask = getFirstTask();
         time_t timeToSleep = getTimeToSleep(firstTask);

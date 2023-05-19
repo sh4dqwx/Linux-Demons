@@ -1,5 +1,5 @@
-most: most.o list.o
-	gcc most.o -o most
+most: most.o
+	gcc most.o -o most -pthread
 
 most.o: most.c
 	gcc -c most.c

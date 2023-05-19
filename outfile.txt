@@ -1,0 +1,10 @@
+
+11:46:ls -l | grep task | wc -l:2
+1
+
+11:47:ls -l 123 | grep task | wc -l 123:2
+ls: cannot access '123'wc: 123: No such file or directory
+: No such file or directory
+
+11:48:ls -l | grep task | wc -l:2
+1

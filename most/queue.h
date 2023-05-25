@@ -3,8 +3,9 @@
 
 typedef struct queueElement queueElement;
 
-void queueAdd(queueElement **head, pthread_t id, currentTime time);
-void queueRemove(queueElement **head);
+void queueAdd(queueElement **head, pthread_t threadId, int cityId);
+queueElement *queuePop(queueElement **head);
+void queueRemoveFirst(queueElement **head);
 void queuePrint(queueElement *head);
 int queueSize(queueElement *head);
 

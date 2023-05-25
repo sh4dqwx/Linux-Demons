@@ -1,17 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "currentTime.h"
+#include <pthread.h>
 
-struct queueElement {
-    pthread_t id;
-    currentTime time;
-    struct queueElement* next;
-} typedef queueElement;
+typedef struct queueElement
+{
+    pthread_t threadId;
+    int cityId;
+    struct queueElement *next;
+} queueElement;
 
-void queueAdd(queueElement** head, pthread_t id, currentTime time) {
-    queueElement* newElement = malloc(sizeof(queueElement));
-    newElement->id = id;
-    newElement->time = time;
+void queueAdd(queueElement** head, pthread_t id, int cityId) {
+    queueElement* newElement = (queueElement*)malloc(sizeof(queueElement));
+    newElement->threadId = id;
+    newElement->cityId = cityId;
     newElement->next = NULL;
 
     if (*head == NULL) {
@@ -26,20 +27,30 @@ void queueAdd(queueElement** head, pthread_t id, currentTime time) {
     current->next = newElement;
 }
 
-void queueRemove(queueElement** head) {
+queueElement* queuePop(queueElement** head) {
+    if (*head == NULL) {
+        return NULL;
+    }
+
+    queueElement* current = *head;
+    *head = (*head)->next;
+    return current;
+}
+
+void queueRemoveFirst(queueElement** head) {
     if (*head == NULL) {
         return;
     }
 
-    queueElement* temp = *head;
+    queueElement* current = *head;
     *head = (*head)->next;
-    free(temp);
+    free(current);
 }
 
 void queuePrint(queueElement* head) {
     queueElement* current = head;
     while (current != NULL) {
-        printf("Thread ID: %ld, Time: %ld:%ld\n", current->id, current->time.seconds, current->time.miliseconds);
+        printf("Thread id: %ld, city id: %d\n", current->threadId, current->cityId);
         current = current->next;
     }
 }

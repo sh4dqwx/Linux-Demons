@@ -5,22 +5,14 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <getopt.h>
 #include "bridge.h"
-#include "currentTime.h"
 
-pthread_mutex_t mutexBridge = PTHREAD_MUTEX_INITIALIZER;
-currentTime cTime = {0, 0};
-
-void *timeThread(void *arg) {
-    while(1) {
-        cTime.miliseconds += 100;
-        if(cTime.miliseconds == 1000) {
-            cTime.seconds++;
-            cTime.miliseconds = 0;
-        }
-        usleep(100000);
-    }
-}
+bool infoFlag = false;
+typedef struct args {
+    int threadId;
+    int cityId;
+} args;
 
 bool isNumber(char *arg) {
     for(int i=0; i<strlen(arg); i++) {
@@ -30,8 +22,12 @@ bool isNumber(char *arg) {
 }
 
 bool validateArguments(int argc, char **argv) {
-    if(argc != 2) {
-        printf("Niepoprawny format: ./bridgeSimulator <N>\n");
+    if(argc > 3) {
+        printf("Niepoprawny format: ./bridgeSimulator <N> [-info]\n");
+        return false;
+    }
+    if(argc == 3 && strcmp(argv[2], "-info")) {
+        printf("Niepoprawny format: ./bridgeSimulator <N> [-info]\n");
         return false;
     }
     if(!isNumber(argv[1])) {
@@ -41,15 +37,17 @@ bool validateArguments(int argc, char **argv) {
     return true;
 }
 
-void *thread(void *arg) {
-    int threadId = *(int *)arg;
-    int cityId = rand() % 2 + 1;
+void *car(void *arg) {
+    args tArgs = *(args*)arg;
+    int threadId = tArgs.threadId;
+    int cityId = tArgs.cityId;
     while(1) {
-        int utime = rand() % 9001 + 1000;
+        //int utime = rand() % 9001 + 1000;
+        int utime = rand() % 901 + 100;
         usleep(utime*1000);
-        printf("Wątek %d wyjeżdża z miasta po %d ms.\n", threadId, utime);
+        //printf("Wątek %d wyjeżdża z miasta %s po %d ms.\n", threadId, cityId==1?"A":"B", utime);
 
-        cityId = leaveCity(threadId, cityId, cTime);
+        cityId = leaveCity(threadId, cityId);
     }
 }
 
@@ -59,15 +57,22 @@ int main(int argc, char **argv) {
         return 1;
 
     int n = atoi(argv[1]);
-    pthread_t timerId;
-    pthread_t *tIds = malloc(n*sizeof(pthread_t));
-    int *tArgs = malloc(n*sizeof(int));
-    initBridge(n);
-    pthread_create(&timerId, NULL, timeThread, NULL);
+    if(argc == 3) infoFlag = true;
+    pthread_t *tIds = (pthread_t*)malloc(n*sizeof(pthread_t));
+    args *tArgs = (args*)malloc(n*sizeof(int));
+    initBridge(n, infoFlag);
+
+    printf("Tworzenie %d wątków...\n", n);
+
+    for (int i = 0; i < n; i++) {
+        tArgs[i].threadId = i+1;
+        tArgs[i].cityId = rand() % 2 + 1;
+        addCarToCity(tArgs[i].threadId, tArgs[i].cityId);
+    }
+
 
     for(int i=0; i<n; i++) {
-        tArgs[i] = i+1;
-        pthread_create(&tIds[i], NULL, thread, &tArgs[i]);
+        pthread_create(&tIds[i], NULL, car, &tArgs[i]);
     }
 
     for(int i=0; i<n; i++) {

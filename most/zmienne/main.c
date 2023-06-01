@@ -61,7 +61,7 @@ void *car(void *arg)
 
 void *trafficLights(void *arg)
 {
-    while(1)
+    while (1)
     {
         arbiter();
     }

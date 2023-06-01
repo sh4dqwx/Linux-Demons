@@ -42,8 +42,10 @@ void addCarToCity(pthread_t threadId, int cityId)
     carListCount++;
 }
 
-void printCarList() {
-    for(int i=0; i<carListCount; i++) {
+void printCarList()
+{
+    for (int i = 0; i < carListCount; i++)
+    {
         printf("%d: Samochód %ld\n", i, carList[i].threadId);
         printf("Miasto - %d\n", carList[i].cityId);
         printf("Kolejka - %d\n\n", carList[i].queueId);
@@ -96,7 +98,6 @@ void printBridgeState()
                carOnBridge,
                countCarsInQueue(2),
                countCarsInCity(2));
-        
 }
 
 void printAllDetails()
@@ -123,7 +124,7 @@ void printAllDetails()
         printf("  - %ld\n", carList[i].threadId);
     }
 
-    printf("Samochod na moście: (%d)\n", carOnBridge != 0 ? 1: 0);
+    printf("Samochod na moście: (%d)\n", carOnBridge != 0 ? 1 : 0);
     if (carOnBridge != 0)
         printf("  - %ld\n", carOnBridge);
 
@@ -156,7 +157,7 @@ int leaveCity(pthread_t threadId, int cityId)
         printBridgeState();
 
     pthread_cond_wait(&carList[threadId - 1].carVar, &queueMutex);
-    
+
     carList[threadId - 1].queueId = 0;
 
     if (info)
@@ -182,7 +183,8 @@ int leaveCity(pthread_t threadId, int cityId)
 void arbiter()
 {
     pthread_mutex_lock(&queueMutex);
-    if(carOnBridge != 0) {
+    if (carOnBridge != 0)
+    {
         pthread_mutex_unlock(&queueMutex);
         return;
     }
@@ -190,7 +192,8 @@ void arbiter()
     queueElement *firstCarInQueueToBridgeBecauseWhyNot = queuePop(&cityQueueHead);
     pthread_mutex_unlock(&queueMutex);
 
-    if(firstCarInQueueToBridgeBecauseWhyNot == NULL) {
+    if (firstCarInQueueToBridgeBecauseWhyNot == NULL)
+    {
         return;
     }
 

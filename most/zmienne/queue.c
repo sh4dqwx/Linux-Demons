@@ -11,6 +11,10 @@ typedef struct queueElement
 
 void queueAdd(queueElement** head, pthread_t id, int cityId) {
     queueElement* newElement = (queueElement*)malloc(sizeof(queueElement));
+    if(newElement == NULL) {
+        perror("malloc");
+        exit(1);
+    }
     newElement->threadId = id;
     newElement->cityId = cityId;
     newElement->next = NULL;

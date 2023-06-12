@@ -30,6 +30,10 @@ int carListCount = 0;
 void initBridge(int maxCars, bool infoFlag)
 {
     carList = malloc(sizeof(carListElement) * maxCars);
+    if(carList == NULL) {
+        perror("malloc");
+        exit(EXIT_FAILURE);
+    }
     info = infoFlag;
 }
 
@@ -38,7 +42,10 @@ void addCarToCity(pthread_t threadId, int cityId)
     carList[carListCount].threadId = threadId;
     carList[carListCount].cityId = cityId;
     carList[carListCount].queueId = 0;
-    pthread_cond_init(&carList[carListCount].carVar, NULL);
+    if(pthread_cond_init(&carList[carListCount].carVar, NULL)) {
+        perror("pthread_cond_init");
+        exit(EXIT_FAILURE);
+    }
     carListCount++;
 }
 
@@ -147,7 +154,11 @@ void printAllDetails()
 
 int leaveCity(pthread_t threadId, int cityId)
 {
-    pthread_mutex_lock(&queueMutex);
+    if(pthread_mutex_lock(&queueMutex)) {
+        perror("pthread_mutex_lock");
+        exit(EXIT_FAILURE);
+    }
+
     queueAdd(&cityQueueHead, threadId, cityId);
     carList[threadId - 1].cityId = 0 - cityId;
     carList[threadId - 1].queueId = cityId;
@@ -156,7 +167,10 @@ int leaveCity(pthread_t threadId, int cityId)
     else
         printBridgeState();
 
-    pthread_cond_wait(&carList[threadId - 1].carVar, &queueMutex);
+    if(pthread_cond_wait(&carList[threadId - 1].carVar, &queueMutex)) {
+        perror("pthread_cond_wait");
+        exit(EXIT_FAILURE);
+    }
 
     carList[threadId - 1].queueId = 0;
 
@@ -165,40 +179,61 @@ int leaveCity(pthread_t threadId, int cityId)
     else
         printBridgeState();
 
-    pthread_mutex_unlock(&queueMutex);
+    if(pthread_mutex_unlock(&queueMutex)) {
+        perror("pthread_mutex_unlock");
+        exit(EXIT_FAILURE);
+    }
 
-    sleep(1); // Czas przejazdu przez most
+    volatile long long iterations = rand() % 9000 + 1000;
+    for (long long i = 0; i < iterations * 100000; i++) { }
 
-    pthread_mutex_lock(&queueMutex);
+    if(pthread_mutex_lock(&queueMutex)) {
+        perror("pthread_mutex_lock");
+        exit(EXIT_FAILURE);
+    }
     carList[threadId - 1].cityId = (cityId == 1 ? 2 : 1);
     carOnBridge = 0;
     if (info)
         printAllDetails();
     else
         printBridgeState();
-    pthread_mutex_unlock(&queueMutex);
+
+    if(pthread_mutex_unlock(&queueMutex)) {
+        perror("pthread_mutex_unlock");
+        exit(EXIT_FAILURE);
+    }
     return carList[threadId - 1].cityId;
 }
 
 void arbiter()
 {
-    pthread_mutex_lock(&queueMutex);
+    if(pthread_mutex_lock(&queueMutex)) {
+        perror("pthread_mutex_lock");
+        exit(EXIT_FAILURE);
+    }
     if (carOnBridge != 0)
     {
-        pthread_mutex_unlock(&queueMutex);
+        if(pthread_mutex_unlock(&queueMutex)) {
+            perror("pthread_mutex_unlock");
+            exit(EXIT_FAILURE);
+        }
         return;
     }
 
     queueElement *firstCarInQueueToBridgeBecauseWhyNot = queuePop(&cityQueueHead);
-    pthread_mutex_unlock(&queueMutex);
-
-    if (firstCarInQueueToBridgeBecauseWhyNot == NULL)
-    {
-        return;
+    if(pthread_mutex_unlock(&queueMutex)) {
+        perror("pthread_mutex_unlock");
+        exit(EXIT_FAILURE);
     }
 
+    if (firstCarInQueueToBridgeBecauseWhyNot == NULL)
+        return;
+
     carOnBridge = firstCarInQueueToBridgeBecauseWhyNot->threadId;
-    pthread_cond_signal(&carList[firstCarInQueueToBridgeBecauseWhyNot->threadId - 1].carVar);
+    if(pthread_cond_signal(&carList[firstCarInQueueToBridgeBecauseWhyNot->threadId - 1].carVar)) {
+        perror("pthread_cond_signal");
+        exit(EXIT_FAILURE);
+    }
 
     free(firstCarInQueueToBridgeBecauseWhyNot);
 }

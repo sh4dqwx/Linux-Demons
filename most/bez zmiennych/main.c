@@ -52,11 +52,8 @@ void *car(void *arg)
     int cityId = tArgs.cityId;
     while (1)
     {
-        // int utime = rand() % 9001 + 1000;
-        int utime = rand() % 901 + 100;
-        usleep(utime * 1000);
-        // printf("Wątek %d wyjeżdża z miasta %s po %d ms.\n", threadId, cityId==1?"A":"B", utime);
-
+        volatile long long iterations = rand() % 9000 + 1000;
+        for (long long i = 0; i < iterations * 1000000; i++) { }
         cityId = leaveCity(threadId, cityId);
     }
 }
@@ -70,8 +67,12 @@ int main(int argc, char **argv)
     int n = atoi(argv[1]);
     if (argc == 3)
         infoFlag = true;
-    pthread_t *tIds = (pthread_t *)malloc(n * sizeof(pthread_t));
-    args *tArgs = (args *)malloc(n * sizeof(int));
+    pthread_t *tIds = malloc(n * sizeof(pthread_t));
+    args *tArgs = malloc(n * sizeof(args));
+    if(tIds == NULL || tArgs == NULL) {
+        perror("malloc");
+        exit(EXIT_FAILURE);
+    }
     initBridge(n, infoFlag);
 
     printf("Tworzenie %d wątków...\n", n);
@@ -85,12 +86,18 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < n; i++)
     {
-        pthread_create(&tIds[i], NULL, car, &tArgs[i]);
+        if(pthread_create(&tIds[i], NULL, car, &tArgs[i])) {
+            perror("pthread_create");
+            exit(EXIT_FAILURE);
+        }
     }
 
     for (int i = 0; i < n; i++)
     {
-        pthread_join(tIds[i], NULL);
+        if(pthread_join(tIds[i], NULL)) {
+            perror("pthread_join");
+            exit(EXIT_FAILURE);
+        }
     }
 
     free(tIds);

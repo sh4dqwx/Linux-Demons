@@ -47,14 +47,6 @@ void queueRemoveFirst(queueElement** head) {
     free(current);
 }
 
-void queuePrint(queueElement* head) {
-    queueElement* current = head;
-    while (current != NULL) {
-        printf("Thread id: %ld, city id: %d\n", current->threadId, current->cityId);
-        current = current->next;
-    }
-}
-
 int queueSize(queueElement* head) {
     int size = 0;
     queueElement* current = head;

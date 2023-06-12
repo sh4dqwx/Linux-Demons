@@ -29,14 +29,16 @@ int carListCount = 0;
 
 void initBridge(int maxCars, bool infoFlag)
 {
-    if (sem_init(&queueSemaphore, 0, 1) != 0)
-    {
-        perror("sem_init error");
+    if (sem_init(&queueSemaphore, 0, 1) != 0) {
+        perror("sem_init");
         exit(EXIT_FAILURE);
     }
     carList = malloc(sizeof(carListElement) * maxCars);
+    if(carList == NULL) {
+        perror("malloc");
+        exit(EXIT_FAILURE);
+    }
     info = infoFlag;
-    printf("Info: %d\n", info);
 }
 
 void addCarToCity(pthread_t threadId, int cityId)
@@ -45,8 +47,14 @@ void addCarToCity(pthread_t threadId, int cityId)
     carList[carListCount].cityId = cityId;
     carList[carListCount].queueId = 0;
     carListCount++;
+}
 
-    printf("Id wątku: %ld\n", carList[carListCount - 1].threadId);
+void printCarList() {
+    for(int i=0; i<carListCount; i++) {
+        printf("%d: Samochód %ld\n", i, carList[i].threadId);
+        printf("Miasto - %d\n", carList[i].cityId);
+        printf("Kolejka - %d\n\n", carList[i].queueId);
+    }
 }
 
 int countCarsInCity(int cityId)
@@ -75,7 +83,13 @@ int countCarsInQueue(int queueId)
 
 void printBridgeState()
 {
-    if (carList[carOnBridge - 1].cityId == -1)
+    if (carOnBridge == 0)
+        printf("A-%d %d --> [   -   ] <-- %d %d-B\n",
+               countCarsInCity(1),
+               countCarsInQueue(1),
+               countCarsInQueue(2),
+               countCarsInCity(2));
+    else if (carList[carOnBridge - 1].cityId == -1)
         printf("A-%d %d --> [>> %ld >>] <-- %d %d-B\n",
                countCarsInCity(1),
                countCarsInQueue(1),
@@ -89,6 +103,7 @@ void printBridgeState()
                carOnBridge,
                countCarsInQueue(2),
                countCarsInCity(2));
+        
 }
 
 void printAllDetails()
@@ -115,20 +130,22 @@ void printAllDetails()
         printf("  - %ld\n", carList[i].threadId);
     }
 
-    printf("Samochod na moście:\n  - %ld\n", carOnBridge);
+    printf("Samochod na moście: (%d)\n", carOnBridge != 0 ? 1: 0);
+    if (carOnBridge != 0)
+        printf("  - %ld\n", carOnBridge);
 
-    printf("Miasto B:\n- samochody w miescie (%d):\n", carsInCityB);
+    printf("Miasto B:\n- samochody w kolejce (%d):\n", carsInQueueB);
     for (int i = 0; i < carListCount; i++)
     {
-        if (carList[i].cityId != 2)
+        if (carList[i].queueId != 2)
             continue;
         printf("  - %ld\n", carList[i].threadId);
     }
 
-    printf("- samochody w kolejce (%d):\n", carsInQueueB);
+    printf("- samochody w miescie (%d):\n", carsInCityB);
     for (int i = 0; i < carListCount; i++)
     {
-        if (carList[i].queueId != 2)
+        if (carList[i].cityId != 2)
             continue;
         printf("  - %ld\n", carList[i].threadId);
     }
@@ -136,18 +153,27 @@ void printAllDetails()
 
 int leaveCity(pthread_t threadId, int cityId)
 {
-    sem_wait(&queueSemaphore);
+    if(sem_wait(&queueSemaphore)) {
+        perror("sem_wait");
+        exit(EXIT_FAILURE);
+    }
     queueAdd(&cityQueueHead, threadId, cityId);
     carList[threadId - 1].cityId = 0 - cityId;
     carList[threadId - 1].queueId = cityId;
     if (info)
         printAllDetails();
-    sem_post(&queueSemaphore);
-
-    while (cityQueueHead->threadId != threadId)
-    {
+    else
+        printBridgeState();
+    if(sem_post(&queueSemaphore)) {
+        perror("sem_post");
+        exit(EXIT_FAILURE);
     }
-    sem_wait(&queueSemaphore);
+
+    while (cityQueueHead->threadId != threadId) {}
+    if(sem_wait(&queueSemaphore)) {
+        perror("sem_wait");
+        exit(EXIT_FAILURE);
+    }
     carOnBridge = threadId;
     carList[threadId - 1].queueId = 0;
 
@@ -156,16 +182,28 @@ int leaveCity(pthread_t threadId, int cityId)
     else
         printBridgeState();
 
-    sem_post(&queueSemaphore);
+    if(sem_post(&queueSemaphore)) {
+        perror("sem_post");
+        exit(EXIT_FAILURE);
+    }
 
-    sleep(1); // Czas przejazdu przez most
+    volatile long long iterations = rand() % 9000 + 1000;
+    for (long long i = 0; i < iterations * 100000; i++) { }
 
-    sem_wait(&queueSemaphore);
+    if(sem_wait(&queueSemaphore)) {
+        perror("sem_wait");
+        exit(EXIT_FAILURE);
+    }
     carOnBridge = 0;
-    carList[threadId - 1].cityId = cityId == -1 ? 2 : 1;
+    carList[threadId - 1].cityId = cityId == 1 ? 2 : 1;
     queueRemoveFirst(&cityQueueHead);
     if (info)
         printAllDetails();
-    sem_post(&queueSemaphore);
+    else
+        printBridgeState();
+    if(sem_post(&queueSemaphore)) {
+        perror("sem_post");
+        exit(EXIT_FAILURE);
+    }
     return carList[threadId - 1].cityId;
 }

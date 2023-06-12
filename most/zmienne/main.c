@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <math.h>
 #include "bridge.h"
 
 bool infoFlag = false;
@@ -52,9 +53,8 @@ void *car(void *arg)
     int cityId = tArgs.cityId;
     while (1)
     {
-        int utime = rand() % 9000 + 1000;
-        usleep(utime * 1000);
-
+        volatile long long iterations = rand() % 9000 + 1000;
+        for (long long i = 0; i < iterations * 1000000; i++) { }
         cityId = leaveCity(threadId, cityId);
     }
 }
@@ -78,6 +78,11 @@ int main(int argc, char **argv)
         infoFlag = true;
     pthread_t *tIds = malloc((n + 1) * sizeof(pthread_t));
     args *tArgs = malloc(n * sizeof(args));
+    if(tIds == NULL || tArgs == NULL) {
+        perror("malloc");
+        exit(EXIT_FAILURE);
+    }
+
     initBridge(n, infoFlag);
 
     printf("Tworzenie %d wątków...\n", n);
@@ -89,17 +94,29 @@ int main(int argc, char **argv)
         addCarToCity(tArgs[i].threadId, tArgs[i].cityId);
     }
 
-    pthread_create(&tIds[n], NULL, trafficLights, NULL);
-
-    for (int i = 0; i < n; i++)
-    {
-        pthread_create(&tIds[i], NULL, car, &tArgs[i]);
+    if (pthread_create(&tIds[n], NULL, trafficLights, NULL)) {
+        perror("pthread_create");
+        exit(EXIT_FAILURE);
     }
 
-    pthread_join(tIds[n], NULL);
     for (int i = 0; i < n; i++)
     {
-        pthread_join(tIds[i], NULL);
+        if (pthread_create(&tIds[i], NULL, car, &tArgs[i])) {
+            perror("pthread_create");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (pthread_join(tIds[n], NULL)) {
+        perror("pthread_join");
+        exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < n; i++)
+    {
+        if (pthread_join(tIds[i], NULL)) {
+            perror("pthread_join");
+            exit(EXIT_FAILURE);
+        }
     }
 
     free(tIds);

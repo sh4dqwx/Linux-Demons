@@ -27,7 +27,7 @@ bool isNumber(char *arg)
 
 bool validateArguments(int argc, char **argv)
 {
-    if (argc > 3)
+    if (argc < 2 || argc > 3)
     {
         printf("Niepoprawny format: ./bridgeSimulator <N> [-info]\n");
         return false;
@@ -53,7 +53,9 @@ void *car(void *arg)
     while (1)
     {
         volatile long long iterations = rand() % 9000 + 1000;
-        for (long long i = 0; i < iterations * 1000000; i++) { }
+        for (long long i = 0; i < iterations * 1000000; i++)
+        {
+        }
         cityId = leaveCity(threadId, cityId);
     }
 }
@@ -69,7 +71,8 @@ int main(int argc, char **argv)
         infoFlag = true;
     pthread_t *tIds = malloc(n * sizeof(pthread_t));
     args *tArgs = malloc(n * sizeof(args));
-    if(tIds == NULL || tArgs == NULL) {
+    if (tIds == NULL || tArgs == NULL)
+    {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
@@ -86,7 +89,8 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < n; i++)
     {
-        if(pthread_create(&tIds[i], NULL, car, &tArgs[i])) {
+        if (pthread_create(&tIds[i], NULL, car, &tArgs[i]))
+        {
             perror("pthread_create");
             exit(EXIT_FAILURE);
         }
@@ -94,7 +98,8 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < n; i++)
     {
-        if(pthread_join(tIds[i], NULL)) {
+        if (pthread_join(tIds[i], NULL))
+        {
             perror("pthread_join");
             exit(EXIT_FAILURE);
         }
